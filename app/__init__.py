@@ -13,7 +13,7 @@ def create_app():
     app = Flask(__name__)
 
     # Configure CORS with dynamic origins
-    CORS(app, resources={r"/api/*": {"origins": allowed_origins}}, supports_credentials=True)
+    CORS(app, resources={r"/api/*": {"origins": allowed_origins.split(",")}}, supports_credentials=True)
 
     # Register Blueprints (example)
     from .routes.value_routes import value_routes
