@@ -1,5 +1,7 @@
 from flask import Flask, request, jsonify
 from extensions import db, jwt, bcrypt
+from sqlalchemy.pool import QueuePool
+
 from models import User
 from flask_cors import CORS
 from flask_migrate import Migrate
@@ -18,6 +20,12 @@ def create_app():
 
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL','sqlite:///users.db')
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+                                            'pool_size': 5,  # Number of connections to keep in the pool
+                                            'max_overflow': 10,  # Additional connections allowed beyond the pool size
+                                            'pool_timeout': 30,  # Timeout in seconds before giving up on getting a connection
+                                            'pool_recycle': 1800  # Recycle connections after 1800 seconds (30 minutes) to prevent idle issues
+                                        }
     app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-secret-key')  # Secret key for JWT
 
     db.init_app(app)
