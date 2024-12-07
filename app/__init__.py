@@ -33,7 +33,7 @@ def create_app():
                                             'pool_timeout': 30,  # Timeout in seconds before giving up on getting a connection
                                             'pool_recycle': 1800  # Recycle connections after 1800 seconds (30 minutes) to prevent idle issues
                                         }
-    app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-secret-key')  # Secret key for JWT
+    # app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-secret-key')  # Secret key for JWT
 
     db.init_app(app)
     jwt.init_app(app)
