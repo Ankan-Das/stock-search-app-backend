@@ -36,7 +36,7 @@ def create_app():
     # app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-secret-key')  # Secret key for JWT
 
     db.init_app(app)
-    jwt.init_app(app)
+    # jwt.init_app(app)
     bcrypt.init_app(app)
 
     print("Migrating ...")
@@ -57,9 +57,9 @@ def create_app():
     from .routes.stock_routes import stock_routes
     from .routes.credential_routes import credential_blurprint
 
-    app.register_blueprint(value_routes, url_prefix="/api/values")
-    app.register_blueprint(stock_routes, url_prefix="/api/stocks")
-    app.register_blueprint(credential_blurprint, url_prefix="/api/auth")
+    # app.register_blueprint(value_routes, url_prefix="/api/values")
+    # app.register_blueprint(stock_routes, url_prefix="/api/stocks")
+    # app.register_blueprint(credential_blurprint, url_prefix="/api/auth")
 
     @app.route('/register', methods=['POST'])
     def register():
