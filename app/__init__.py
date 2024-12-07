@@ -17,7 +17,7 @@ def create_app():
 
     ## Firebase Settings
     current_directory = os.path.dirname(os.path.abspath(__file__))
-    service_account_path = os.path.join(current_directory, "mystocksfirebaseapp-firebase-adminsdk-1fh4a-60b9a9cbe8.json")
+    service_account_path = os.path.join(current_directory, "mystocksfirebaseapp-firebase-adminsdk-1fh4a-f0565a708f.json")
     cred = credentials.Certificate(service_account_path)
     firebase_admin.initialize_app(cred)
     firestoreDB = firestore.client()
@@ -55,9 +55,9 @@ def create_app():
     print("Tables created")
 
     # Register Blueprints (example)
-    from .routes.value_routes import value_routes
-    from .routes.stock_routes import stock_routes
-    from .routes.credential_routes import credential_blurprint
+    # from .routes.value_routes import value_routes
+    # from .routes.stock_routes import stock_routes
+    # from .routes.credential_routes import credential_blurprint
 
     # app.register_blueprint(value_routes, url_prefix="/api/values")
     # app.register_blueprint(stock_routes, url_prefix="/api/stocks")
