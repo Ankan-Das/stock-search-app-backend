@@ -8,10 +8,17 @@ from flask_migrate import Migrate
 import os
 from dotenv import load_dotenv
 
+import firebase_admin
+from firebase_admin import auth, credentials, firestore
+
 def create_app():
     # Load environment variables
     load_dotenv()
 
+    ## Firebase Settings
+    cred = credentials.Certificate('app/mystocksfirebaseapp-firebase-adminsdk-1fh4a-60b9a9cbe8.json')
+    firebase_admin.initialize_app(cred)
+    firestoreDB = firestore.client()
 
     # Get allowed origins from environment
     allowed_origins = os.getenv("ALLOWED_ORIGINS", "*")
@@ -56,10 +63,30 @@ def create_app():
 
     @app.route('/register', methods=['POST'])
     def register():
-       data = request.json
-       return jsonify({
-           "message": "registration successful",
-           "userId": "1234"
-           }), 200
+        try:
+            data = request.json
+            email = data['email']
+            password = data['password']
+            role = data['role']
 
+            print(email)
+
+            userRecord = auth.create_user(email=email, password=password)
+
+            print("HERE 1")
+
+            userData = {
+                'user_id': email.split("@")[0],
+                'uid': userRecord.uid,
+                'role': role
+            }
+            print("HERE 2")
+            firestoreDB.collection('users').document(userData['user_id']).set(userData)
+            print("HERE 3")
+            return jsonify({
+                "message": "registration successful",
+                "userId": userData['user_id']
+                }), 200
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
     return app
