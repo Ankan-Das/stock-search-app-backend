@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from extensions import db, jwt, bcrypt
+from extensions import db, bcrypt
 from sqlalchemy.pool import QueuePool
 
 from models import User
