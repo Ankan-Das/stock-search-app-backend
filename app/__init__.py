@@ -6,6 +6,7 @@ from models import User
 from flask_cors import CORS
 from flask_migrate import Migrate
 import os
+import json
 from dotenv import load_dotenv
 
 import firebase_admin
@@ -16,9 +17,10 @@ def create_app():
     load_dotenv()
 
     ## Firebase Settings
-    current_directory = os.path.dirname(os.path.abspath(__file__))
-    service_account_path = os.path.join(current_directory, "mystocksfirebaseapp-firebase-adminsdk-1fh4a-f0565a708f.json")
-    cred = credentials.Certificate(service_account_path)
+    # current_directory = os.path.dirname(os.path.abspath(__file__))
+    # service_account_path = os.path.join(current_directory, "mystocksfirebaseapp-firebase-adminsdk-1fh4a-f0565a708f.json")
+    firebase_credentials = json.loads(os.getenv("FIREBASE_CREDENTIALS"))
+    cred = credentials.Certificate(firebase_credentials)
     firebase_admin.initialize_app(cred)
     firestoreDB = firestore.client()
 
