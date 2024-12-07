@@ -1,9 +1,7 @@
 from extensions import db, bcrypt
 from models import User
 
-import jwt
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import create_access_token
 from datetime import datetime
 from config import Config
 
