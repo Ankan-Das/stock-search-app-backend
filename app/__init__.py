@@ -16,7 +16,9 @@ def create_app():
     load_dotenv()
 
     ## Firebase Settings
-    cred = credentials.Certificate('app/mystocksfirebaseapp-firebase-adminsdk-1fh4a-60b9a9cbe8.json')
+    current_directory = os.path.dirname(os.path.abspath(__file__))
+    service_account_path = os.path.join(current_directory, "mystocksfirebaseapp-firebase-adminsdk-1fh4a-60b9a9cbe8.json")
+    cred = credentials.Certificate(service_account_path)
     firebase_admin.initialize_app(cred)
     firestoreDB = firestore.client()
 
