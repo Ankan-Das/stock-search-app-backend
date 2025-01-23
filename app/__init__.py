@@ -19,10 +19,10 @@ def create_app():
     load_dotenv()
 
     ## Firebase Settings
-    firebase_credentials_path = os.getenv("FIREBASE_CREDENTIALS_PATH")
+    firebase_credentials = json.loads(os.getenv("FIREBASE_CREDENTIALS_PATH"))
     
-    with open(firebase_credentials_path, "r") as f:
-        firebase_credentials = json.load(f)
+    # with open(firebase_credentials_path, "r") as f:
+    #     firebase_credentials = json.load(f)
 
     cred = credentials.Certificate(firebase_credentials)
     firebase_admin.initialize_app(cred)
