@@ -12,14 +12,18 @@ from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import auth, credentials, firestore
 
+from flask_sock import Sock
+
 def create_app():
     # Load environment variables
     load_dotenv()
 
     ## Firebase Settings
-    # current_directory = os.path.dirname(os.path.abspath(__file__))
-    # service_account_path = os.path.join(current_directory, "mystocksfirebaseapp-firebase-adminsdk-1fh4a-f0565a708f.json")
-    firebase_credentials = json.loads(os.getenv("FIREBASE_CREDENTIALS"))
+    firebase_credentials_path = os.getenv("FIREBASE_CREDENTIALS_PATH")
+    
+    with open(firebase_credentials_path, "r") as f:
+        firebase_credentials = json.load(f)
+
     cred = credentials.Certificate(firebase_credentials)
     firebase_admin.initialize_app(cred)
     firestoreDB = firestore.client()
@@ -29,6 +33,8 @@ def create_app():
 
     app = Flask(__name__)
 
+    sock = Sock(app)
+
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL','sqlite:///users.db')
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
@@ -37,33 +43,87 @@ def create_app():
                                             'pool_timeout': 30,  # Timeout in seconds before giving up on getting a connection
                                             'pool_recycle': 1800  # Recycle connections after 1800 seconds (30 minutes) to prevent idle issues
                                         }
-    # app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-secret-key')  # Secret key for JWT
-
+    
     db.init_app(app)
-    # jwt.init_app(app)
-    bcrypt.init_app(app)
 
-    print("Migrating ...")
-    migrate = Migrate(app, db)
-    print("Migrating Done!")
+    # print("Migrating ...")
+    # migrate = Migrate(app, db)
+    # print("Migrating Done!")
 
     # Configure CORS with dynamic origins
     CORS(app, resources={r"*": {"origins": allowed_origins.split(",")}}, supports_credentials=True)
 
-    # Ensure tables are created within the app context
-    print("Creating tables")
-    with app.app_context():
-        db.create_all()
-    print("Tables created")
+    # # Ensure tables are created within the app context
+    # print("Creating tables")
+    # with app.app_context():
+    #     db.create_all()
+    # print("Tables created")
+
+    ### ~~~~~~~~~~~~~~~~~~~~~~~~~ TESTING TWELVE DATA LIBRARY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    import time
+    from twelvedata import TDClient
+    import threading
+
+    td = TDClient(apikey="b98b47709df24df0909b3af1f59b55e0")
+
+    # Track client subscriptions
+    client_subscriptions = {}
+
+    # Handle live stock data updates
+    def start_twelvedata_ws():
+        def on_event(event):
+            print("\nEVENT : ", event)
+            if event['event'] in {"subscribe-status", "heartbeat"}:
+                return
+            symbol = event['symbol']
+            price = event['price']
+            data = {"symbol": symbol, "price": price}
+            for client, symbols in client_subscriptions.items():
+                if symbol in symbols:
+                    try:
+                        client.send(json.dumps(data))
+                    except Exception as e:
+                        print(f"Error sending to client: {e}")
+
+        # Initialize Twelvedata WebSocket
+        ws = td.websocket(symbols="EUR/USD,AAPL,BTC/USD,INFY", on_event=on_event)
+        ws.connect()
+        while True:
+            print("CLIENT Subs : ", client_subscriptions)
+            ws.heartbeat()
+            time.sleep(10)
+
+    # WebSocket route for client connections
+    @sock.route('/stock-data')
+    def stock_data(ws):
+        try:
+            while True:
+                # Receive subscription request
+                message = ws.receive()
+                if message:
+                    data = json.loads(message)
+                    symbols = data.get("symbols", [])
+                    client_subscriptions[ws] = symbols
+        except Exception as e:
+            print(f"Client disconnected: {e}")
+        finally:
+            print("\n-----FINALLY CLOSED FROM BACKEND-----\n")
+            client_subscriptions.pop(ws, None)
+
+    # Start Twelvedata WebSocket in a separate thread
+    threading.Thread(target=start_twelvedata_ws, daemon=True).start()
+    
+    ## ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
 
     # Register Blueprints (example)
     # from .routes.value_routes import value_routes
-    # from .routes.stock_routes import stock_routes
-    # from .routes.credential_routes import credential_blurprint
+    from .routes.stock_routes import stock_routes
 
     # app.register_blueprint(value_routes, url_prefix="/api/values")
-    # app.register_blueprint(stock_routes, url_prefix="/api/stocks")
-    # app.register_blueprint(credential_blurprint, url_prefix="/api/auth")
+    app.register_blueprint(stock_routes, url_prefix="/api/stocks")
 
     @app.route('/register', methods=['POST'])
     def register():
@@ -73,24 +133,26 @@ def create_app():
             password = data['password']
             role = data['role']
 
-            print(email)
-
             userRecord = auth.create_user(email=email, password=password)
-
-            print("HERE 1")
 
             userData = {
                 'user_id': email.split("@")[0],
                 'uid': userRecord.uid,
                 'role': role
             }
-            print("HERE 2")
             firestoreDB.collection('users').document(userData['user_id']).set(userData)
-            print("HERE 3")
             return jsonify({
                 "message": "registration successful",
                 "userId": userData['user_id']
                 }), 200
         except Exception as e:
             return jsonify({'error': str(e)}), 500
+        
+
+    @app.route('/ping', methods=['POST'])
+    def ping():
+        return jsonify({
+            "message": "Ping successful, server is up now!"
+        }), 200
+
     return app
