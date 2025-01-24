@@ -96,11 +96,13 @@ def create_app():
     # WebSocket route for client connections
     @sock.route('/stock-data')
     def stock_data(ws):
+        print("WS Connection Received from : ", ws)
         try:
             while True:
                 # Receive subscription request
                 message = ws.receive()
                 if message:
+                    print("Message Received : ", message)
                     data = json.loads(message)
                     symbols = data.get("symbols", [])
                     client_subscriptions[ws] = symbols
