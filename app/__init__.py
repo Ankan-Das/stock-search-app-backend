@@ -72,26 +72,45 @@ def create_app():
     # Handle live stock data updates
     def start_twelvedata_ws():
         def on_event(event):
-            print("\nEVENT : ", event)
             if event['event'] in {"subscribe-status", "heartbeat"}:
                 return
-            symbol = event['symbol']
-            price = event['price']
-            data = {"symbol": symbol, "price": price}
-            for client, symbols in client_subscriptions.items():
-                if symbol in symbols:
-                    try:
-                        client.send(json.dumps(data))
-                    except Exception as e:
-                        print(f"Error sending to client: {e}")
-
-        # Initialize Twelvedata WebSocket
-        ws = td.websocket(symbols="EUR/USD,AAPL,BTC/USD,INFY", on_event=on_event)
-        ws.connect()
+            
+            symbol = event.get('symbol')
+            price = event.get('price')
+            if symbol and price:
+                data = {"symbol": symbol, "price": price}
+                for client, symbols in client_subscriptions.items():
+                    if symbol in symbols:
+                        try:
+                            client.send(json.dumps(data))
+                        except Exception as e:
+                            print(f"Error sending to client {client}: {e}")
+        
         while True:
-            print("CLIENT Subs : ", client_subscriptions)
-            ws.heartbeat()
-            time.sleep(10)
+            try:
+                print("Connecting to Twelvedata WebSocket...")
+                ws = td.websocket(
+                    symbols="EUR/USD,AAPL,BTC/USD,INFY",
+                    on_event=on_event
+                )
+                ws.connect()
+                print("Twelvedata WebSocket connected")
+                while True:
+                    ws.heartbeat()
+                    time.sleep(10)
+            except Exception as e:
+                print(f"Twelvedata WebSocket error: {e}")
+                print("Reconnecting in 5 seconds...")
+                time.sleep(5)
+
+
+        # # Initialize Twelvedata WebSocket
+        # ws = td.websocket(symbols="EUR/USD,AAPL,BTC/USD,INFY", on_event=on_event)
+        # ws.connect()
+        # while True:
+        #     print("CLIENT Subs : ", client_subscriptions)
+        #     ws.heartbeat()
+        #     time.sleep(10)
 
     # WebSocket route for client connections
     @sock.route('/stock-data')
