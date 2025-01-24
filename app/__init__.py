@@ -72,7 +72,7 @@ def create_app():
     # Handle live stock data updates
     def start_twelvedata_ws():
         def on_event(event):
-            print("\nEVENT : ", event)
+            # print("\nEVENT : ", event)
             if event['event'] in {"subscribe-status", "heartbeat"}:
                 return
             symbol = event['symbol']
