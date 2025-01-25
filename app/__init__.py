@@ -74,11 +74,12 @@ def create_app():
         def on_event(event):
             if event['event'] in {"subscribe-status", "heartbeat"}:
                 return
-            print("EVENT", event)
+            print("\nEVENT", event)
             symbol = event.get('symbol')
             price = event.get('price')
             if symbol and price:
                 current_data[symbol] = price  # Store latest prices globally
+            print("current data", current_data, "\n")
 
         while True:
             try:
