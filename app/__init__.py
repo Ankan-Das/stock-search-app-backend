@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from extensions import db, bcrypt
 from sqlalchemy.pool import QueuePool
 
@@ -68,29 +68,22 @@ def create_app():
 
     # Track client subscriptions
     client_subscriptions = {}
+    current_data = {}
 
-    # Handle live stock data updates
     def start_twelvedata_ws():
         def on_event(event):
             if event['event'] in {"subscribe-status", "heartbeat"}:
                 return
-            print("EVENT", event)
             symbol = event.get('symbol')
             price = event.get('price')
             if symbol and price:
-                data = {"symbol": symbol, "price": price}
-                for client, symbols in client_subscriptions.items():
-                    if symbol in symbols:
-                        try:
-                            client.send(json.dumps(data))
-                        except Exception as e:
-                            print(f"Error sending to client {client}: {e}")
-        
+                current_data[symbol] = price  # Store latest prices globally
+
         while True:
             try:
                 print("Connecting to Twelvedata WebSocket...")
                 ws = td.websocket(
-                    symbols="EUR/USD,AAPL,BTC/USD,INFY",
+                    symbols=",".join(["EUR/USD", "AAPL", "BTC/USD", "INFY"]),
                     on_event=on_event
                 )
                 ws.connect()
@@ -100,35 +93,34 @@ def create_app():
                     time.sleep(10)
             except Exception as e:
                 print(f"Twelvedata WebSocket error: {e}")
-                print("Reconnecting in 5 seconds...")
                 time.sleep(5)
 
+    @app.route('/update-subscription', methods=['POST'])
+    def update_subscription():
+        client_id = request.remote_addr
+        data = request.json
+        symbols = data.get("symbols", [])
+        client_subscriptions[client_id] = symbols
+        
+        return {"status": "success", "subscribed_symbols": symbols}, 200
 
-        # # Initialize Twelvedata WebSocket
-        # ws = td.websocket(symbols="EUR/USD,AAPL,BTC/USD,INFY", on_event=on_event)
-        # ws.connect()
-        # while True:
-        #     print("CLIENT Subs : ", client_subscriptions)
-        #     ws.heartbeat()
-        #     time.sleep(10)
+    @app.route('/stock-updates')
+    def stock_updates():
+        # Capture `remote_addr` outside the generator
+        client_id = request.remote_addr
 
-    # WebSocket route for client connections
-    @sock.route('/stock-data')
-    def stock_data(ws):
-        print("WS Connection Received from : ", ws)
-        try:
+        def stream():
             while True:
-                # Receive subscription request
-                message = ws.receive()
-                if message:
-                    data = json.loads(message)
-                    symbols = data.get("symbols", [])
-                    client_subscriptions[ws] = symbols
-        except Exception as e:
-            print(f"Client disconnected: {e}")
-        finally:
-            print("\n-----FINALLY CLOSED FROM BACKEND-----\n")
-            client_subscriptions.pop(ws, None)
+                symbols = client_subscriptions.get(client_id, [])
+                updates = [
+                    {"symbol": symbol, "price": current_data.get(symbol, "Loading...")}
+                    for symbol in symbols
+                ]
+                yield f"data: {json.dumps(updates)}\n\n"
+                time.sleep(1)  # Push updates every second
+
+        return Response(stream(), content_type='text/event-stream')
+
 
     # Start Twelvedata WebSocket in a separate thread
     threading.Thread(target=start_twelvedata_ws, daemon=True).start()
