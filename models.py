@@ -1,25 +1,59 @@
 from extensions import db
-from sqlalchemy import event
+from datetime import datetime
 
 # Define the User model
 class User(db.Model):
     __tablename__ = 'users'
-    
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    password = db.Column(db.String(128), nullable=False)
-    user_id = db.Column(db.String(10), unique=True, nullable=True)  # Will be set after insert
-    role = db.Column(db.String(50), nullable=False, default='user')
-    
-    def __init__(self, password, role='user'):
-        self.password = password
-        self.role = role
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-# Event listener to generate user_id after the record is inserted
-@event.listens_for(User, 'after_insert')
-def generate_user_id(mapper, connection, target):
-    user_id = f"user-{str(target.id).zfill(5)}"  # Format the id with leading zeros
-    connection.execute(
-        User.__table__.update()
-        .where(User.id == target.id)
-        .values(user_id=user_id)
-    )
+    def __init__(self, username, email=None):
+        self.username = username
+        self.email = email
+
+# Define the Stock model
+class Stock(db.Model):
+    __tablename__ = 'stocks'
+    id = db.Column(db.Integer, primary_key=True)
+    symbol = db.Column(db.String(20), unique=True, nullable=False)
+    name = db.Column(db.String(255), nullable=False)
+
+    def __init__(self, symbol, name):
+        self.symbol = symbol
+        self.name = name
+
+# Define the Portfolio model
+class Portfolio(db.Model):
+    __tablename__ = 'portfolio'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    stock_id = db.Column(db.Integer, db.ForeignKey('stocks.id'), nullable=False)
+    units = db.Column(db.Integer, nullable=False)
+    average_buy_price = db.Column(db.Float, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __init__(self, user_id, stock_id, units, average_buy_price):
+        self.user_id = user_id
+        self.stock_id = stock_id
+        self.units = units
+        self.average_buy_price = average_buy_price
+
+# Define the Transaction model
+class Transaction(db.Model):
+    __tablename__ = 'transactions'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    stock_id = db.Column(db.Integer, db.ForeignKey('stocks.id'), nullable=False)
+    transaction_type = db.Column(db.String(10), nullable=False)  # 'buy' or 'sell'
+    units = db.Column(db.Integer, nullable=False)
+    price = db.Column(db.Float, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __init__(self, user_id, stock_id, transaction_type, units, price):
+        self.user_id = user_id
+        self.stock_id = stock_id
+        self.transaction_type = transaction_type
+        self.units = units
+        self.price = price

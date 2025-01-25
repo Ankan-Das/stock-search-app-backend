@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, Response
-from extensions import db, bcrypt
+from models import db
 from sqlalchemy.pool import QueuePool
 
 from models import User
@@ -38,12 +38,12 @@ def create_app():
 
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL','sqlite:///users.db')
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-                                            'pool_size': 5,  # Number of connections to keep in the pool
-                                            'max_overflow': 10,  # Additional connections allowed beyond the pool size
-                                            'pool_timeout': 30,  # Timeout in seconds before giving up on getting a connection
-                                            'pool_recycle': 1800  # Recycle connections after 1800 seconds (30 minutes) to prevent idle issues
-                                        }
+    # app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    #                                         'pool_size': 5,  # Number of connections to keep in the pool
+    #                                         'max_overflow': 10,  # Additional connections allowed beyond the pool size
+    #                                         'pool_timeout': 30,  # Timeout in seconds before giving up on getting a connection
+    #                                         'pool_recycle': 1800  # Recycle connections after 1800 seconds (30 minutes) to prevent idle issues
+    #                                     }
     
     db.init_app(app)
 
@@ -61,76 +61,74 @@ def create_app():
     # print("Tables created")
 
     ### ~~~~~~~~~~~~~~~~~~~~~~~~~ TESTING TWELVE DATA LIBRARY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    import time
-    from twelvedata import TDClient
-    import threading
+    # import time
+    # from twelvedata import TDClient
+    # import threading
 
-    td = TDClient(apikey="b98b47709df24df0909b3af1f59b55e0")
+    # td = TDClient(apikey="b98b47709df24df0909b3af1f59b55e0")
 
-    # Track client subscriptions
-    client_subscriptions = {}
-    current_data = {}
-    
+    # # Track client subscriptions
+    # client_subscriptions = {}   # TODO: Use Redis for this
+    # current_data = {}
 
-    def start_twelvedata_ws():
-        def on_event(event):
-            if event['event'] in {"subscribe-status", "heartbeat"}:
-                return
-            symbol = event.get('symbol')
-            price = event.get('price')
-            if symbol and price:
-                current_data[symbol] = price  # Store latest prices globally
-            print("current data", current_data, "\n")
 
-        while True:
-            try:
-                print("Connecting to Twelvedata WebSocket...")
-                ws = td.websocket(
-                    symbols=",".join(["EUR/USD", "AAPL", "BTC/USD", "INFY"]),
-                    on_event=on_event
-                )
-                ws.connect()
-                print("Twelvedata WebSocket connected")
-                while True:
-                    ws.heartbeat()
-                    time.sleep(5)
-            except Exception as e:
-                print(f"Twelvedata WebSocket error: {e}")
-                time.sleep(5)
+    # def start_twelvedata_ws():
+    #     def on_event(event):
+    #         if event['event'] in {"subscribe-status", "heartbeat"}:
+    #             return
+    #         symbol = event.get('symbol')
+    #         price = event.get('price')
+    #         if symbol and price:
+    #             current_data[symbol] = price  # Store latest prices globally
+    #         print("current data", current_data, "\n")
 
-    @app.route('/update-subscription', methods=['POST'])
-    def update_subscription():
-        client_id = request.remote_addr
-        data = request.json
-        symbols = data.get("symbols", [])
-        client_subscriptions[client_id] = symbols
+    #     while True:
+    #         try:
+    #             print("Connecting to Twelvedata WebSocket...")
+    #             ws = td.websocket(
+    #                 symbols=",".join(["EUR/USD", "AAPL", "BTC/USD", "INFY"]),
+    #                 on_event=on_event
+    #             )
+    #             ws.connect()
+    #             print("Twelvedata WebSocket connected")
+    #             while True:
+    #                 ws.heartbeat()
+    #                 time.sleep(5)
+    #         except Exception as e:
+    #             print(f"Twelvedata WebSocket error: {e}")
+    #             time.sleep(5)
 
-        print("Client subscriptions", client_subscriptions)
+    # @app.route('/update-subscription', methods=['POST'])
+    # def update_subscription():
+    #     client_id = request.remote_addr
+    #     data = request.json
+    #     symbols = data.get("symbols", [])
+    #     client_subscriptions[client_id] = symbols
+
+    #     print("Client subscriptions", client_subscriptions)
         
-        return {"status": "success", "subscribed_symbols": symbols}, 200
+    #     return {"status": "success", "subscribed_symbols": symbols}, 200
 
-    @app.route('/stock-updates')
-    def stock_updates():
-        # Capture `remote_addr` outside the generator
-        client_id = request.remote_addr
+    # @app.route('/stock-updates')
+    # def stock_updates():
+    #     # Capture `remote_addr` outside the generator
+    #     client_id = request.remote_addr
 
-        def stream():
-            while True:
-                print("CLIENT SUBS: ", client_subscriptions)
-                print("CURRENT DATA: ", current_data)
-                symbols = client_subscriptions.get(client_id, [])
-                updates = [
-                    {"symbol": symbol, "price": current_data.get(symbol, "Loading...")}
-                    for symbol in symbols
-                ]
-                yield f"data: {json.dumps(updates)}\n\n"
-                time.sleep(1)  # Push updates every second
+    #     def stream():
+    #         while True:
+    #             symbols = client_subscriptions.get(client_id, [])
+    #             updates = [
+    #                 {"symbol": symbol, "price": current_data.get(symbol, "Loading...")}
+    #                 for symbol in symbols
+    #             ]
+    #             yield f"data: {json.dumps(updates)}\n\n"
+    #             time.sleep(1)  # Push updates every second
 
-        return Response(stream(), content_type='text/event-stream')
+    #     return Response(stream(), content_type='text/event-stream')
 
 
-    # Start Twelvedata WebSocket in a separate thread
-    threading.Thread(target=start_twelvedata_ws, daemon=True).start()
+    # # Start Twelvedata WebSocket in a separate thread
+    # threading.Thread(target=start_twelvedata_ws, daemon=True).start()
     
     ## ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -139,10 +137,10 @@ def create_app():
 
     # Register Blueprints (example)
     # from .routes.value_routes import value_routes
-    from .routes.stock_routes import stock_routes
+    # from .routes.stock_routes import stock_routes
 
     # app.register_blueprint(value_routes, url_prefix="/api/values")
-    app.register_blueprint(stock_routes, url_prefix="/api/stocks")
+    # app.register_blueprint(stock_routes, url_prefix="/api/stocks")
 
     @app.route('/register', methods=['POST'])
     def register():
@@ -153,6 +151,7 @@ def create_app():
             role = data['role']
 
             userRecord = auth.create_user(email=email, password=password)
+            print("USER CREATED IN FIREBASE AUTH")
 
             userData = {
                 'user_id': email.split("@")[0],
@@ -160,6 +159,25 @@ def create_app():
                 'role': role
             }
             firestoreDB.collection('users').document(userData['user_id']).set(userData)
+            print("USER ADDED in FIREBASE COLLECTION")
+
+            ## If the role is user, update it in the DB
+            username = email.split("@")[0]
+            existing_user = User.query.filter_by(username=username).first()
+            if existing_user:
+                return jsonify({"error": "Username already exists"}), 400
+            print("NOT EXISTING USER")
+            
+            if role=="user":
+                new_user = User(username=username, email=email)
+                try:
+                    db.session.add(new_user)
+                    db.session.commit()
+                    return jsonify({"message": "User created successfully", "user_id": new_user.id}), 201
+                except Exception as e:
+                    db.session.rollback()
+                    return jsonify({"error": "An error occurred while creating the user", "details": str(e)}), 500
+
             return jsonify({
                 "message": "registration successful",
                 "userId": userData['user_id']
