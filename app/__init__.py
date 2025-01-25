@@ -8,6 +8,7 @@ from flask_migrate import Migrate
 import os
 import json
 from dotenv import load_dotenv
+import pprint
 
 import firebase_admin
 from firebase_admin import auth, credentials, firestore
@@ -74,6 +75,7 @@ def create_app():
         def on_event(event):
             if event['event'] in {"subscribe-status", "heartbeat"}:
                 return
+            pprint.pprint(client_subscriptions)
             print("\nEVENT", event)
             symbol = event.get('symbol')
             price = event.get('price')
@@ -92,7 +94,7 @@ def create_app():
                 print("Twelvedata WebSocket connected")
                 while True:
                     ws.heartbeat()
-                    time.sleep(10)
+                    time.sleep(5)
             except Exception as e:
                 print(f"Twelvedata WebSocket error: {e}")
                 time.sleep(5)
