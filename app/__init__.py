@@ -75,8 +75,6 @@ def create_app():
         def on_event(event):
             if event['event'] in {"subscribe-status", "heartbeat"}:
                 return
-            print("\nCLIENT SUBS", client_subscriptions)
-            print("EVENT", event)
             symbol = event.get('symbol')
             price = event.get('price')
             if symbol and price:
@@ -117,6 +115,8 @@ def create_app():
 
         def stream():
             while True:
+                print("CLIENT SUBS: ", client_subscriptions)
+                print("CURRENT DATA: ", current_data)
                 symbols = client_subscriptions.get(client_id, [])
                 updates = [
                     {"symbol": symbol, "price": current_data.get(symbol, "Loading...")}
