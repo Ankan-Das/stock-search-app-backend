@@ -70,6 +70,7 @@ def create_app():
     # Track client subscriptions
     client_subscriptions = {}
     current_data = {}
+    
 
     def start_twelvedata_ws():
         def on_event(event):
