@@ -74,6 +74,7 @@ def create_app():
         def on_event(event):
             if event['event'] in {"subscribe-status", "heartbeat"}:
                 return
+            print("EVENT", event)
             symbol = event.get('symbol')
             price = event.get('price')
             if symbol and price:
