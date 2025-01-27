@@ -35,11 +35,10 @@ def trade_stock():
         stock = Stock.query.filter_by(symbol=stock_id).first()
         if not stock:
             return jsonify({"error": "Stock not found"}), 404
-
+        
         # Validate transaction type
         if transaction_type not in ['buy', 'sell']:
             return jsonify({"error": "Invalid transaction type. Must be 'buy' or 'sell'"}), 400
-
         # Handle 'buy' transaction
         if transaction_type == 'buy':
             # Add the transaction to the Transactions table
@@ -137,3 +136,23 @@ def get_portfolio():
         return jsonify({"portfolio": portfolio_data}), 200
     except Exception as e:
         return jsonify({"error": "An error occurred while fetching the portfolio", "details": str(e)}), 500
+
+
+@stock_routes.route('/get_stocks', methods=['GET'])
+def get_stocks():
+    """
+    Fetch all available stocks.
+    """
+    try:
+        stocks = Stock.query.all()
+        stocks_data = [
+            {
+                "id": stock.id,
+                "symbol": stock.symbol,
+                "name": stock.name,
+                "price": 105006.0  # Placeholder for current price, replace with real-time data if available
+            } for stock in stocks
+        ]
+        return jsonify({"stocks": stocks_data}), 200
+    except Exception as e:
+        return jsonify({"error": "An error occurred while fetching stocks", "details": str(e)}), 500
