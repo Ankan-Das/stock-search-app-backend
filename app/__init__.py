@@ -36,7 +36,7 @@ def create_app():
 
     sock = Sock(app)
 
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:123456@localhost:5432/stock_portfolio_database'
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL")
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     # app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     #                                         'pool_size': 5,  # Number of connections to keep in the pool
@@ -47,18 +47,20 @@ def create_app():
     
     db.init_app(app)
 
-    # print("Migrating ...")
-    # migrate = Migrate(app, db)
-    # print("Migrating Done!")
+
+
+    print("Migrating ...")
+    migrate = Migrate(app, db)
+    print("Migrating Done!")
 
     # Configure CORS with dynamic origins
     CORS(app, resources={r"*": {"origins": allowed_origins.split(",")}}, supports_credentials=True)
 
-    # # Ensure tables are created within the app context
-    # print("Creating tables")
-    # with app.app_context():
-    #     db.create_all()
-    # print("Tables created")
+    # Ensure tables are created within the app context
+    print("Creating tables")
+    with app.app_context():
+        db.create_all()
+    print("Tables created")
 
     ### ~~~~~~~~~~~~~~~~~~~~~~~~~ TESTING TWELVE DATA LIBRARY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     import time
@@ -186,7 +188,7 @@ def create_app():
             return jsonify({'error': str(e)}), 500
         
 
-    @app.route('/ping', methods=['POST'])
+    @app.route('/ping', methods=['GET'])
     def ping():
         return jsonify({
             "message": "Ping successful, server is up now!"

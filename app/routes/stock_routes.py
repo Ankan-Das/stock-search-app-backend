@@ -156,3 +156,43 @@ def get_stocks():
         return jsonify({"stocks": stocks_data}), 200
     except Exception as e:
         return jsonify({"error": "An error occurred while fetching stocks", "details": str(e)}), 500
+
+
+@stock_routes.route('/get_transactions', methods=['GET'])
+def get_transactions():
+    """
+    Fetches all transactions for a given user.
+    """
+    
+    user_id = request.args.get('user_id')
+    try:
+        # Validate if user exists
+        user = User.query.filter_by(username=user_id).first()
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        print(user.id)
+        # Fetch all transactions for the user
+        transactions = (db.session.query(Transaction, Stock.symbol)
+                        .join(Stock, Transaction.stock_id == Stock.id)
+                        .filter(Transaction.user_id == user.id)
+                        .order_by(Transaction.created_at.desc())
+                        .all())
+
+        if not transactions:
+            return jsonify({"error": "No transactions found for the user"}), 404
+        
+        transactions_data = [
+            {
+                "transaction_id": txn.Transaction.id,
+                "symbol": txn.symbol,  # Get stock symbol instead of stock_id
+                "transaction_type": txn.Transaction.transaction_type,
+                "units": txn.Transaction.units,
+                "price": txn.Transaction.price,
+                "created_at": txn.Transaction.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            } for txn in transactions
+        ]
+
+        return jsonify({"transactions": transactions_data}), 200
+    
+    except Exception as e:
+        return jsonify({"error": "An error occurred while fetching transactions", "details": str(e)}), 500
