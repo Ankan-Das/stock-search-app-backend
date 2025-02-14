@@ -62,43 +62,82 @@ def create_app():
         db.create_all()
     print("Tables created")
 
-    ### ~~~~~~~~~~~~~~~~~~~~~~~~~ TESTING TWELVE DATA LIBRARY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    ### ~~~~~~~~~~~~~~~~~~~~~~~~~ TESTING TRUE DATA LIBRARY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     import time
-    from twelvedata import TDClient
+    import websocket
     import threading
-
-    td = TDClient(apikey="b98b47709df24df0909b3af1f59b55e0")
-
-    # Track client subscriptions
-    client_subscriptions = {}   # TODO: Use Redis for this
+    # Track client subscriptions (ideally use a shared store like Redis in production)
+    client_subscriptions = {}
+    # Store the latest prices for symbols received from TrueData
     current_data = {}
+    market_status = {}
+    _map = {"100000737": "ITC", "100011226": "ITCHOTELS", "100001262": "RELIANCE", "100004843": "DELHIVERY", "100000025": "ADANIENT", "100000027": "ADANIGREEN"}
 
+    def start_truedata_ws():
+        def on_message(ws, message):
+            print("Received message:", message)
+            try:
+                data = json.loads(message)
+                # If the message contains market status (e.g. NSE_EQ), update market_status
+                if "NSE_EQ" in data:
+                    global market_status
+                    market_status = data
+                    print("\n\n\nUpdated market status:", market_status)
+                elif "trade" in data:
+                    _data = data['trade']
+                    # Otherwise, assume it's a price update for a symbol.
+                    symbol = _map.get(_data[0])
+                    price = _data[2]
+                    if symbol and price:
+                        current_data[symbol] = price  # update the latest price
+                    print("\nUpdated current data:", current_data, "\n")
+            except Exception as e:
+                print("Error parsing message:", e)
 
-    def start_twelvedata_ws():
-        def on_event(event):
-            if event['event'] in {"subscribe-status", "heartbeat"}:
-                return
-            symbol = event.get('symbol')
-            price = event.get('price')
-            if symbol and price:
-                current_data[symbol] = price  # Store latest prices globally
-            print("current data", current_data, "\n")
+        def on_error(ws, error):
+            print("TrueData WS error:", error)
+
+        def on_close(ws, close_status_code, close_msg):
+            print("TrueData WS closed:", close_status_code, close_msg)
+
+        def on_open(ws):
+            print("TrueData WS connected")
+            # Send the initial subscription message.
+            subscription_msg = {
+                "method": "addsymbol",
+                "symbols": ["ITC", "ITCHOTELS", "RELIANCE", "DELHIVERY", "ADANIENT", "ADANIGREEN"]
+            }
+            ws.send(json.dumps(subscription_msg))
+            print("Subscription message sent:", subscription_msg)
+            
+            # Define a function to send market status request every 5 minutes.
+            def send_market_status():
+                try:
+                    status_msg = {"method": "getmarketstatus"}
+                    ws.send(json.dumps(status_msg))
+                    print("Sent market status request:", status_msg)
+                except Exception as e:
+                    print("Error sending market status:", e)
+                # Schedule the next market status request in 300 seconds (5 minutes)
+                threading.Timer(5, send_market_status).start()
+            
+            # Start the recurring market status request
+            send_market_status()
 
         while True:
             try:
-                print("Connecting to Twelvedata WebSocket...")
-                ws = td.websocket(
-                    symbols=",".join(["EUR/USD", "AAPL", "BTC/USD", "INFY"]),
-                    on_event=on_event
+                print("Connecting to TrueData WebSocket...")
+                ws = websocket.WebSocketApp(
+                    "wss://push.truedata.in:8086?user=Trial153&password=ankan153",
+                    on_open=on_open,
+                    on_message=on_message,
+                    on_error=on_error,
+                    on_close=on_close
                 )
-                ws.connect()
-                print("Twelvedata WebSocket connected")
-                while True:
-                    ws.heartbeat()
-                    time.sleep(5)
+                ws.run_forever()
             except Exception as e:
-                print(f"Twelvedata WebSocket error: {e}")
-                time.sleep(5)
+                print("Exception in TrueData WS connection:", e)
+            time.sleep(5)
 
     @app.route('/update-subscription', methods=['POST'])
     def update_subscription():
@@ -108,30 +147,35 @@ def create_app():
         client_subscriptions[client_id] = symbols
 
         print("Client subscriptions", client_subscriptions)
-        
+        # Return the subscription details.
         return {"status": "success", "subscribed_symbols": symbols}, 200
 
     @app.route('/stock-updates')
     def stock_updates():
-        # Capture `remote_addr` outside the generator
+        # Capture client's IP outside of the streaming generator.
         client_id = request.remote_addr
 
         def stream():
             while True:
                 symbols = client_subscriptions.get(client_id, [])
-                updates = [
-                    {"symbol": symbol, "price": current_data.get(symbol, "Loading...")}
+                # Build price updates for the symbols the client is subscribed to.
+                print("CURRENT DATA HERE: ", current_data)
+                price_updates = [
+                    {"symbol": symbol, "price": current_data.get(symbol, "Loing...")}
                     for symbol in symbols
                 ]
+                # Combine the price updates with the latest market status.
+                updates = {
+                    "prices": price_updates,
+                    "market_status": market_status
+                }
                 yield f"data: {json.dumps(updates)}\n\n"
                 time.sleep(1)  # Push updates every second
 
         return Response(stream(), content_type='text/event-stream')
-
-
-    # Start Twelvedata WebSocket in a separate thread
-    threading.Thread(target=start_twelvedata_ws, daemon=True).start()
     
+    threading.Thread(target=start_truedata_ws, daemon=True).start()
+        
     ## ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
