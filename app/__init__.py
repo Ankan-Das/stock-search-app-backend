@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify, Response
 from models import db
 from sqlalchemy.pool import QueuePool
 
-from models import User
+from models import User, LatestUserID
 from flask_cors import CORS
 from flask_migrate import Migrate
 import os
@@ -69,8 +69,8 @@ def create_app():
     # Track client subscriptions (ideally use a shared store like Redis in production)
     client_subscriptions = {}
     # Store the latest prices for symbols received from TrueData
-    current_data = {}
-    market_status = {}
+    current_data = {"ITC": "500", "ITCHOTELS": "1220", "RELIANCE": "909"}
+    market_status = False
     _map = {"100000737": "ITC", "100011226": "ITCHOTELS", "100001262": "RELIANCE", "100004843": "DELHIVERY", "100000025": "ADANIENT", "100000027": "ADANIGREEN"}
 
     def start_truedata_ws():
@@ -82,7 +82,7 @@ def create_app():
                 if "NSE_EQ" in data:
                     global market_status
                     market_status = data
-                    print("\n\n\nUpdated market status:", market_status)
+                    # print("\n\n\nUpdated market status:", market_status)
                 elif "trade" in data:
                     _data = data['trade']
                     # Otherwise, assume it's a price update for a symbol.
@@ -90,25 +90,25 @@ def create_app():
                     price = _data[2]
                     if symbol and price:
                         current_data[symbol] = price  # update the latest price
-                    print("\nUpdated current data:", current_data, "\n")
+                    # print("\nUpdated current data:", current_data, "\n")
             except Exception as e:
                 print("Error parsing message:", e)
 
         def on_error(ws, error):
-            print("TrueData WS error:", error)
+            print("--TrueData WS error:", error)
 
         def on_close(ws, close_status_code, close_msg):
-            print("TrueData WS closed:", close_status_code, close_msg)
+            print("--TrueData WS closed:", close_status_code, close_msg)
 
         def on_open(ws):
-            print("TrueData WS connected")
+            print("--TrueData WS connected")
             # Send the initial subscription message.
             subscription_msg = {
                 "method": "addsymbol",
                 "symbols": ["ITC", "ITCHOTELS", "RELIANCE", "DELHIVERY", "ADANIENT", "ADANIGREEN"]
             }
             ws.send(json.dumps(subscription_msg))
-            print("Subscription message sent:", subscription_msg)
+            print("--Subscription message sent:", subscription_msg)
             
             # Define a function to send market status request every 5 minutes.
             def send_market_status():
@@ -152,27 +152,29 @@ def create_app():
 
     @app.route('/stock-updates')
     def stock_updates():
-        # Capture client's IP outside of the streaming generator.
         client_id = request.remote_addr
 
         def stream():
+            count = 0
             while True:
                 symbols = client_subscriptions.get(client_id, [])
-                # Build price updates for the symbols the client is subscribed to.
-                print("CURRENT DATA HERE: ", current_data)
                 price_updates = [
-                    {"symbol": symbol, "price": current_data.get(symbol, "Loing...")}
+                    {"symbol": symbol, "price": current_data.get(symbol, "Loading...")}
                     for symbol in symbols
                 ]
-                # Combine the price updates with the latest market status.
-                updates = {
-                    "prices": price_updates,
-                    "market_status": market_status
-                }
-                yield f"data: {json.dumps(updates)}\n\n"
-                time.sleep(1)  # Push updates every second
+                # Always send the prices event every second.
+                yield f"data: {json.dumps(price_updates)}\n\n"
+                
+                # Every 5 seconds (i.e. when count is divisible by 5), send the market status event.
+                if count % 5 == 0:
+                    yield f"data: {json.dumps({'market_status': 'CLOSED'})}\n\n"
+                
+                count += 1
+                time.sleep(1)
 
         return Response(stream(), content_type='text/event-stream')
+
+
     
     threading.Thread(target=start_truedata_ws, daemon=True).start()
         
@@ -188,48 +190,104 @@ def create_app():
     # app.register_blueprint(value_routes, url_prefix="/api/values")
     app.register_blueprint(stock_routes, url_prefix="/api/stocks")
 
+
+    def add_child(user_id, child_id):
+        """
+        Update the relationships document for the given master user_id by adding the child_id.
+        If the document does not exist, create it with the child_id in an array.
+        """
+        try:
+            relationships_ref = firestoreDB.collection('relationships').document(user_id)
+            doc_snapshot = relationships_ref.get()
+
+            if doc_snapshot.exists:
+                # Document exists: use ArrayUnion to add child_id
+                relationships_ref.update({
+                    'children': firestore.ArrayUnion([{'userId': child_id}])
+                })
+            else:
+                # Document does not exist: create it with an initial children array
+                relationships_ref.set({
+                    'children': [{
+                        'userId': child_id
+                }]
+                })
+            print(f"Successfully updated relationships for user_id: {user_id}")
+        except Exception as e:
+            print("Error updating relationships: " + str(e))
+            raise e
+
+
     @app.route('/register', methods=['POST'])
     def register():
         try:
             data = request.json
-            email = data['email']
+            # Expect at least: password and role (firstName/lastName optional)
+            masterID = data['masterID']
             password = data['password']
-            role = data['role']
+            firstName = data.get('firstName','')
+            lastName = data.get('lastName','')
 
-            userRecord = auth.create_user(email=email, password=password)
-            print("USER CREATED IN FIREBASE AUTH")
+            # Begin a SQL transaction
+            with db.session.begin():
+                # Retrieve the single row in LatestUserID using a FOR UPDATE lock to avoid race conditions.
+                latest = LatestUserID.query.with_for_update().first()
+                if not latest:
+                    # If no row exists, create one with default latest_id = 0.
+                    latest = LatestUserID(latest_id=8)
+                    db.session.add(latest)
+                    db.session.flush()  # Flush to assign an id
 
-            userData = {
-                'user_id': email.split("@")[0],
-                'uid': userRecord.uid,
-                'role': role
-            }
-            firestoreDB.collection('users').document(userData['user_id']).set(userData)
-            print("USER ADDED in FIREBASE COLLECTION")
+                # Increment the latest id and update the record.
+                new_id = latest.latest_id + 1
+                latest.latest_id = new_id
 
-            ## If the role is user, update it in the DB
-            username = email.split("@")[0]
-            existing_user = User.query.filter_by(username=username).first()
-            if existing_user:
-                return jsonify({"error": "Username already exists"}), 400
-            print("NOT EXISTING USER")
-            
-            if role=="user":
-                new_user = User(username=username, email=email)
-                try:
-                    db.session.add(new_user)
-                    db.session.commit()
-                    return jsonify({"message": "User created successfully", "user_id": new_user.id}), 201
-                except Exception as e:
+                # Use the new_id to generate an email (and username).
+                username = f"user-000{str(new_id)}"
+                email = f"{username}@stocksapp.com"
+
+                # Check if a user already exists with this username.
+                existing_user = User.query.filter_by(username=username).first()
+                if existing_user:
                     db.session.rollback()
-                    return jsonify({"error": "An error occurred while creating the user", "details": str(e)}), 500
+                    return jsonify({"error": "Username already exists"}), 400
 
-            return jsonify({
-                "message": "registration successful",
-                "userId": userData['user_id']
-                }), 200
+                # If the role is "user", create a new SQL User record.
+                new_user = User(username=username, email=email)
+                db.session.add(new_user)
+
+                # Commit the SQL transaction.
+                # (The LatestUserID update and new user insertion are now final.)
+                db.session.commit()
+
+            # Now, outside of the SQL transaction, call external services.
+            # Create the user in Firebase Auth.
+            userRecord = auth.create_user(email=email, password=password)
+            app.logger.info("USER CREATED IN FIREBASE AUTH")
+
+            # Prepare user data for Firestore.
+            userData = {
+                'user_id': str(username),
+                'uid': userRecord.uid,
+                'role': "user",
+                'firstName': firstName,
+                'lastName': lastName
+            }
+            # Write user data to Firestore.
+            firestoreDB.collection('users').document(userData['user_id']).set(userData)
+            app.logger.info("USER ADDED in FIREBASE COLLECTION")
+
+            add_child(masterID, username)
+
+            # Return the appropriate response.
+            return jsonify({"message": "User created successfully", "userId": new_user.username}), 201
+
         except Exception as e:
+            # If an exception occurs, rollback the transaction (if it hasn't been committed)
+            db.session.rollback()
+            app.logger.error("Error in /register: " + str(e))
             return jsonify({'error': str(e)}), 500
+
         
 
     @app.route('/ping', methods=['GET'])

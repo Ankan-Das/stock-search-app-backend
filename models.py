@@ -13,14 +13,23 @@ class User(db.Model):
         self.username = username
         self.email = email
 
+
+class LatestUserID(db.Model):
+    __tablename__ = 'latest_user_id'
+    id = db.Column(db.Integer, primary_key=True)
+    latest_id = db.Column(db.Integer, nullable=False, default=0)
+
+
 # Define the Stock model
 class Stock(db.Model):
     __tablename__ = 'stocks'
     id = db.Column(db.Integer, primary_key=True)
+    stock_id = db.Column(db.String(9), unique=True, nullable=False)  # 9-digit unique stock ID
     symbol = db.Column(db.String(20), unique=True, nullable=False)
     name = db.Column(db.String(255), nullable=False)
 
-    def __init__(self, symbol, name):
+    def __init__(self, stock_id, symbol, name):
+        self.stock_id = stock_id
         self.symbol = symbol
         self.name = name
 
