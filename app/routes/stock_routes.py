@@ -24,7 +24,7 @@ def trade_stock():
         stock_id = data['stock_id']
         transaction_type = data['transaction_type'].lower()
         units = data['units']
-        price = data['price']
+        price = int(data['price'])
 
         # Validate the user
         user = User.query.filter_by(username=user_id).first()

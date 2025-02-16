@@ -13,7 +13,9 @@ import pprint
 import firebase_admin
 from firebase_admin import auth, credentials, firestore
 
-from flask_sock import Sock
+import threading
+
+current_data = {}
 
 def create_app():
     # Load environment variables
@@ -33,8 +35,6 @@ def create_app():
     allowed_origins = os.getenv("ALLOWED_ORIGINS", "*")
 
     app = Flask(__name__)
-
-    sock = Sock(app)
 
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL")
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -65,17 +65,18 @@ def create_app():
     ### ~~~~~~~~~~~~~~~~~~~~~~~~~ TESTING TRUE DATA LIBRARY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     import time
     import websocket
-    import threading
+
     # Track client subscriptions (ideally use a shared store like Redis in production)
     client_subscriptions = {}
     # Store the latest prices for symbols received from TrueData
-    current_data = {"ITC": "500", "ITCHOTELS": "1220", "RELIANCE": "909"}
+    # current_data = {"ITC": "500", "ITCHOTELS": "1220", "RELIANCE": "909", "ADANIGREEN": "332"}
     market_status = False
     _map = {"100000737": "ITC", "100011226": "ITCHOTELS", "100001262": "RELIANCE", "100004843": "DELHIVERY", "100000025": "ADANIENT", "100000027": "ADANIGREEN"}
 
     def start_truedata_ws():
         def on_message(ws, message):
-            print("Received message:", message)
+            # print("Received message:", message)
+            global current_data
             try:
                 data = json.loads(message)
                 # If the message contains market status (e.g. NSE_EQ), update market_status
@@ -90,6 +91,7 @@ def create_app():
                     price = _data[2]
                     if symbol and price:
                         current_data[symbol] = price  # update the latest price
+                        print("\nCURRENT DATA INPUT: ", current_data, "\n\n")
                     # print("\nUpdated current data:", current_data, "\n")
             except Exception as e:
                 print("Error parsing message:", e)
@@ -128,7 +130,7 @@ def create_app():
             try:
                 print("Connecting to TrueData WebSocket...")
                 ws = websocket.WebSocketApp(
-                    "wss://push.truedata.in:8086?user=Trial153&password=ankan153",
+                    "wss://replay.truedata.in:8082?user=Trial153&password=ankan153",
                     on_open=on_open,
                     on_message=on_message,
                     on_error=on_error,
@@ -158,6 +160,7 @@ def create_app():
             count = 0
             while True:
                 symbols = client_subscriptions.get(client_id, [])
+                print("\nCURRENT DATA OUTPUT: ", current_data, "\n\n")
                 price_updates = [
                     {"symbol": symbol, "price": current_data.get(symbol, "Loading...")}
                     for symbol in symbols
