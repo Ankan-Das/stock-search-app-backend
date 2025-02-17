@@ -15,7 +15,7 @@ from firebase_admin import auth, credentials, firestore
 
 import threading
 
-current_data = {}
+from app.stocks_list import NSE_STOCK, MAP
 
 def create_app():
     # Load environment variables
@@ -65,34 +65,59 @@ def create_app():
     ### ~~~~~~~~~~~~~~~~~~~~~~~~~ TESTING TRUE DATA LIBRARY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     import time
     import websocket
+    import redis
 
-    # Track client subscriptions (ideally use a shared store like Redis in production)
-    client_subscriptions = {}
-    # Store the latest prices for symbols received from TrueData
-    # current_data = {"ITC": "500", "ITCHOTELS": "1220", "RELIANCE": "909", "ADANIGREEN": "332"}
-    market_status = False
-    _map = {"100000737": "ITC", "100011226": "ITCHOTELS", "100001262": "RELIANCE", "100004843": "DELHIVERY", "100000025": "ADANIENT", "100000027": "ADANIGREEN"}
+    # Setup Redis connection
+    REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+    REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+    # Use decode_responses=True to work with native Python strings.
+    redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
+
+    # Helper functions for subscriptions and current data in Redis
+    def set_client_subscription(client_id, symbols):
+        redis_client.set(f"subscription:{client_id}", json.dumps(symbols))
+
+    def get_client_subscription(client_id):
+        data = redis_client.get(f"subscription:{client_id}")
+        if data:
+            return json.loads(data)
+        return []
+
+    def update_current_data(symbol, price):
+        redis_client.hset("current_data", symbol, price)
+
+    def get_current_price(symbol):
+        price = redis_client.hget("current_data", symbol)
+        if price is None:
+            return "Loading..."
+        return price
+
+    def update_market_status(status):
+        redis_client.set("market_status", json.dumps(status))
+
+    def get_market_status():
+        status = redis_client.get("market_status")
+        if status:
+            return status.strip('\"')
+        return "CLOSED"
 
     def start_truedata_ws():
         def on_message(ws, message):
-            # print("Received message:", message)
-            global current_data
             try:
                 data = json.loads(message)
                 # If the message contains market status (e.g. NSE_EQ), update market_status
                 if "NSE_EQ" in data:
-                    global market_status
-                    market_status = data
-                    # print("\n\n\nUpdated market status:", market_status)
+                    update_market_status(data["NSE_EQ"])
                 elif "trade" in data:
                     _data = data['trade']
-                    # Otherwise, assume it's a price update for a symbol.
-                    symbol = _map.get(_data[0])
+                    # Assume _data[0] is the key for symbol and _data[2] is the price.
+                    symbol = MAP.get(_data[0])
                     price = _data[2]
                     if symbol and price:
-                        current_data[symbol] = price  # update the latest price
-                        print("\nCURRENT DATA INPUT: ", current_data, "\n\n")
-                    # print("\nUpdated current data:", current_data, "\n")
+                        update_current_data(symbol, price)
+                        # For debugging, show the current state from Redis.
+                        current_data_snapshot = redis_client.hgetall("current_data")
+                        print("\nCURRENT DATA INPUT: ", current_data_snapshot, "\n")
             except Exception as e:
                 print("Error parsing message:", e)
 
@@ -107,7 +132,7 @@ def create_app():
             # Send the initial subscription message.
             subscription_msg = {
                 "method": "addsymbol",
-                "symbols": ["ITC", "ITCHOTELS", "RELIANCE", "DELHIVERY", "ADANIENT", "ADANIGREEN"]
+                "symbols": NSE_STOCK
             }
             ws.send(json.dumps(subscription_msg))
             print("--Subscription message sent:", subscription_msg)
@@ -123,14 +148,13 @@ def create_app():
                 # Schedule the next market status request in 300 seconds (5 minutes)
                 threading.Timer(5, send_market_status).start()
             
-            # Start the recurring market status request
             send_market_status()
 
         while True:
             try:
                 print("Connecting to TrueData WebSocket...")
                 ws = websocket.WebSocketApp(
-                    "wss://replay.truedata.in:8082?user=Trial153&password=ankan153",
+                    "wss://replay.truedata.in:8082?user=tdwsp642&password=ankan@642",
                     on_open=on_open,
                     on_message=on_message,
                     on_error=on_error,
@@ -146,10 +170,10 @@ def create_app():
         client_id = request.remote_addr
         data = request.json
         symbols = data.get("symbols", [])
-        client_subscriptions[client_id] = symbols
-
-        print("Client subscriptions", client_subscriptions)
-        # Return the subscription details.
+        set_client_subscription(client_id, symbols)
+        # For debugging, print the stored subscription.
+        subscription_stored = get_client_subscription(client_id)
+        print("Client subscriptions for", client_id, subscription_stored)
         return {"status": "success", "subscribed_symbols": symbols}, 200
 
     @app.route('/stock-updates')
@@ -159,32 +183,25 @@ def create_app():
         def stream():
             count = 0
             while True:
-                symbols = client_subscriptions.get(client_id, [])
-                print("\nCURRENT DATA OUTPUT: ", current_data, "\n\n")
+                symbols = get_client_subscription(client_id)
+                current_data_snapshot = redis_client.hgetall("current_data")
+                print("\nCURRENT DATA OUTPUT: ", current_data_snapshot, "\n")
                 price_updates = [
-                    {"symbol": symbol, "price": current_data.get(symbol, "Loading...")}
+                    {"symbol": symbol, "price": get_current_price(symbol)}
                     for symbol in symbols
                 ]
-                # Always send the prices event every second.
+                # Send the prices update.
                 yield f"data: {json.dumps(price_updates)}\n\n"
-                
-                # Every 5 seconds (i.e. when count is divisible by 5), send the market status event.
+                # Every 5 seconds, also send market status.
                 if count % 5 == 0:
-                    yield f"data: {json.dumps({'market_status': 'CLOSED'})}\n\n"
-                
+                    yield f"data: {json.dumps({'market_status': get_market_status()})}\n\n"
                 count += 1
                 time.sleep(1)
-
         return Response(stream(), content_type='text/event-stream')
 
-
-    
     threading.Thread(target=start_truedata_ws, daemon=True).start()
-        
+
     ## ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-
-
 
     # Register Blueprints (example)
     # from .routes.value_routes import value_routes
@@ -211,9 +228,7 @@ def create_app():
             else:
                 # Document does not exist: create it with an initial children array
                 relationships_ref.set({
-                    'children': [{
-                        'userId': child_id
-                }]
+                    'children': [{'userId': child_id}]
                 })
             print(f"Successfully updated relationships for user_id: {user_id}")
         except Exception as e:
@@ -225,11 +240,10 @@ def create_app():
     def register():
         try:
             data = request.json
-            # Expect at least: password and role (firstName/lastName optional)
             masterID = data['masterID']
             password = data['password']
-            firstName = data.get('firstName','')
-            lastName = data.get('lastName','')
+            firstName = data.get('firstName', '')
+            lastName = data.get('lastName', '')
 
             # Begin a SQL transaction
             with db.session.begin():
