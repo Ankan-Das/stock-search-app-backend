@@ -85,8 +85,6 @@ def create_app():
     
     db.init_app(app)
 
-
-
     print("Migrating ...")
     migrate = Migrate(app, db)
     print("Migrating Done!")
@@ -99,6 +97,16 @@ def create_app():
     with app.app_context():
         db.create_all()
     print("Tables created")
+
+
+    @app.after_request
+    def add_cors_headers(response):
+        response.headers['Access-Control-Allow-Origin'] = 'https://trade-app-frontend.vercel.app'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        # If you're sending cookies or credentials, include:
+        # response.headers['Access-Control-Allow-Credentials'] = 'true'
+        return response
 
     ### ~~~~~~~~~~~~~~~~~~~~~~~~~ TESTING TRUE DATA LIBRARY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     import time

@@ -5,6 +5,15 @@ from models import User, Stock, Transaction, Portfolio
 
 stock_routes = Blueprint("stock_routes", __name__)
 
+@stock_routes.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = 'https://trade-app-frontend.vercel.app'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    # If you're sending cookies or credentials, include:
+    # response.headers['Access-Control-Allow-Credentials'] = 'true'
+    return response
+
 @stock_routes.route('/trade', methods=['POST'])
 def trade_stock():
     """
@@ -109,7 +118,7 @@ def get_portfolio():
     """
     if request.method == 'OPTIONS':
         response = make_response()
-        response.headers['Access-Control-Allow-Origin'] = 'https://stock-search-app-frontend.vercel.app'
+        response.headers['Access-Control-Allow-Origin'] = 'https://trade-app-frontend.vercel.app'
         response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
         return response, 200
@@ -163,6 +172,12 @@ def get_transactions():
     """
     Fetches all transactions for a given user.
     """
+    if request.method == 'OPTIONS':
+        response = make_response()
+        response.headers['Access-Control-Allow-Origin'] = 'https://trade-app-frontend.vercel.app'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        return response, 200
     
     user_id = request.args.get('user_id')
     try:
