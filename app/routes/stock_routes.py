@@ -1,6 +1,6 @@
 # backend/app/routes/stock_routes.py
 from flask import Blueprint, request, jsonify, make_response
-from app import db
+from app import db, get_current_price
 from models import User, Stock, Transaction, Portfolio
 
 stock_routes = Blueprint("stock_routes", __name__)
@@ -14,7 +14,7 @@ def trade_stock():
     try:
         # Parse request data
         data = request.get_json()
-        required_fields = ['user_id', 'stock_id', 'transaction_type', 'units', 'price']
+        required_fields = ['user_id', 'stock_id', 'transaction_type', 'units']
 
         # Check for missing required fields
         if not all(field in data for field in required_fields):
@@ -24,7 +24,7 @@ def trade_stock():
         stock_id = data['stock_id']
         transaction_type = data['transaction_type'].lower()
         units = data['units']
-        price = int(data['price'])
+        price = round(float(get_current_price(stock_id)),2)
 
         # Validate the user
         user = User.query.filter_by(username=user_id).first()

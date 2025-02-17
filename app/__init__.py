@@ -15,6 +15,44 @@ from firebase_admin import auth, credentials, firestore
 
 import threading
 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~ REDIS OPERATIONS ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+import redis
+
+# Setup Redis connection
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+# Use decode_responses=True to work with native Python strings.
+redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
+
+# Helper functions for subscriptions and current data in Redis
+def set_client_subscription(client_id, symbols):
+    redis_client.set(f"subscription:{client_id}", json.dumps(symbols))
+
+def get_client_subscription(client_id):
+    data = redis_client.get(f"subscription:{client_id}")
+    if data:
+        return json.loads(data)
+    return []
+
+def update_current_data(symbol, price):
+    redis_client.hset("current_data", symbol, price)
+
+def get_current_price(symbol):
+    price = redis_client.hget("current_data", symbol)
+    if price is None:
+        return "Loading..."
+    return price
+
+def update_market_status(status):
+    redis_client.set("market_status", json.dumps(status))
+
+def get_market_status():
+    status = redis_client.get("market_status")
+    if status:
+        return status.strip('\"')
+    return "CLOSED"
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 from app.stocks_list import NSE_STOCK, MAP
 
 def create_app():
@@ -65,41 +103,7 @@ def create_app():
     ### ~~~~~~~~~~~~~~~~~~~~~~~~~ TESTING TRUE DATA LIBRARY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     import time
     import websocket
-    import redis
 
-    # Setup Redis connection
-    REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-    REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-    # Use decode_responses=True to work with native Python strings.
-    redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
-
-    # Helper functions for subscriptions and current data in Redis
-    def set_client_subscription(client_id, symbols):
-        redis_client.set(f"subscription:{client_id}", json.dumps(symbols))
-
-    def get_client_subscription(client_id):
-        data = redis_client.get(f"subscription:{client_id}")
-        if data:
-            return json.loads(data)
-        return []
-
-    def update_current_data(symbol, price):
-        redis_client.hset("current_data", symbol, price)
-
-    def get_current_price(symbol):
-        price = redis_client.hget("current_data", symbol)
-        if price is None:
-            return "Loading..."
-        return price
-
-    def update_market_status(status):
-        redis_client.set("market_status", json.dumps(status))
-
-    def get_market_status():
-        status = redis_client.get("market_status")
-        if status:
-            return status.strip('\"')
-        return "CLOSED"
 
     def start_truedata_ws():
         def on_message(ws, message):
@@ -108,6 +112,12 @@ def create_app():
                 # If the message contains market status (e.g. NSE_EQ), update market_status
                 if "NSE_EQ" in data:
                     update_market_status(data["NSE_EQ"])
+                # Case where the data arrives for the first time
+                elif "symbolsadded" in data:
+                    for sym in data["symbollist"]:
+                        symbol = sym[0]
+                        price = sym[3]
+                        update_current_data(symbol, price)
                 elif "trade" in data:
                     _data = data['trade']
                     # Assume _data[0] is the key for symbol and _data[2] is the price.
@@ -197,6 +207,38 @@ def create_app():
                     yield f"data: {json.dumps({'market_status': get_market_status()})}\n\n"
                 count += 1
                 time.sleep(1)
+        return Response(stream(), content_type='text/event-stream')
+    
+
+    @app.route('/stock-stream')
+    def stock_stream():
+        # Get the stock ids from query parameter. E.g., ?ids=ITC,RELIANCE
+        ids_param = request.args.get('ids')
+        if not ids_param:
+            return "No stock ids provided", 400
+
+        stock_ids = [sid.strip() for sid in ids_param.split(',') if sid.strip()]
+        
+        def stream():
+            start_time = time.time()
+            next_market_time = 5  # send market status every 5 seconds
+            while True:
+                # Build price updates for the provided stock_ids.
+                price_updates = [
+                    {"symbol": sid, "price": get_current_price(sid)}
+                    for sid in stock_ids
+                ]
+                # Send the prices event every 2 seconds.
+                yield f"event: prices\ndata: {json.dumps(price_updates)}\n\n"
+                
+                # Check if it's time to send market status event.
+                current_elapsed = time.time() - start_time
+                if current_elapsed >= next_market_time:
+                    yield f"event: market_status\ndata: {json.dumps(get_market_status())}\n\n"
+                    next_market_time += 5
+
+                time.sleep(2)
+
         return Response(stream(), content_type='text/event-stream')
 
     threading.Thread(target=start_truedata_ws, daemon=True).start()
